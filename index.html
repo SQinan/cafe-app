@@ -74,6 +74,17 @@
       background: #555;
     }
 
+    button:disabled {
+      background: #aaa;
+      cursor: not-allowed;
+    }
+
+    #status {
+      text-align: center;
+      color: #666;
+      margin: 20px 0;
+    }
+
     #result {
       margin-top: 25px;
       padding: 15px;
@@ -95,6 +106,10 @@
       font-size: 20px;
       font-weight: bold;
     }
+
+    .error {
+      color: #b00020;
+    }
   </style>
 </head>
 
@@ -103,78 +118,114 @@
   <div class="container">
     <h1>Café Bill Calculator</h1>
 
-    <div class="item">
-      <div class="item-info">
-        <div class="item-name">Chicken Rice</div>
-        <div class="price">$4.50</div>
-      </div>
-      <input type="number" id="chickenRice" min="0" value="0">
-    </div>
+    <div id="status">Loading menu...</div>
 
-    <div class="item">
-      <div class="item-info">
-        <div class="item-name">Nasi Lemak</div>
-        <div class="price">$4.00</div>
-      </div>
-      <input type="number" id="nasiLemak" min="0" value="0">
-    </div>
+    <div id="menu"></div>
 
-    <div class="item">
-      <div class="item-info">
-        <div class="item-name">Laksa</div>
-        <div class="price">$5.00</div>
-      </div>
-      <input type="number" id="laksa" min="0" value="0">
-    </div>
-
-    <div class="item">
-      <div class="item-info">
-        <div class="item-name">Kopi</div>
-        <div class="price">$1.50</div>
-      </div>
-      <input type="number" id="kopi" min="0" value="0">
-    </div>
-
-    <div class="item">
-      <div class="item-info">
-        <div class="item-name">Teh</div>
-        <div class="price">$1.30</div>
-      </div>
-      <input type="number" id="teh" min="0" value="0">
-    </div>
-
-    <div class="item">
-      <div class="item-info">
-        <div class="item-name">Milo</div>
-        <div class="price">$2.00</div>
-      </div>
-      <input type="number" id="milo" min="0" value="0">
-    </div>
-
-    <button onclick="calculateBill()">Calculate Bill</button>
+    <button id="calculateButton" onclick="calculateBill()" disabled>
+      Calculate Bill
+    </button>
 
     <div id="result"></div>
   </div>
 
   <script>
-    const menu = [
-      { id: "chickenRice", name: "Chicken Rice", price: 4.50 },
-      { id: "nasiLemak", name: "Nasi Lemak", price: 4.00 },
-      { id: "laksa", name: "Laksa", price: 5.00 },
-      { id: "kopi", name: "Kopi", price: 1.50 },
-      { id: "teh", name: "Teh", price: 1.30 },
-      { id: "milo", name: "Milo", price: 2.00 }
-    ];
+    let menuItems = [];
+
+    async function loadMenu() {
+      const status = document.getElementById("status");
+      const menuContainer = document.getElementById("menu");
+      const calculateButton = document.getElementById("calculateButton");
+
+      try {
+        const response = await fetch("menu.csv");
+
+        if (!response.ok) {
+          throw new Error("Unable to load menu.csv");
+        }
+
+        const csvText = await response.text();
+        const lines = csvText.trim().split(/\r?\n/);
+
+        // Remove header row
+        const dataRows = lines.slice(1);
+
+        menuItems = dataRows
+          .map((line, index) => {
+            const parts = line.split(",");
+
+            if (parts.length < 2) {
+              return null;
+            }
+
+            const name = parts[0].trim();
+            const price = parseFloat(parts[1].trim());
+
+            if (!name || isNaN(price)) {
+              return null;
+            }
+
+            return {
+              id: `item-${index}`,
+              name: name,
+              price: price
+            };
+          })
+          .filter(item => item !== null);
+
+        if (menuItems.length === 0) {
+          throw new Error("No valid menu items found.");
+        }
+
+        menuContainer.innerHTML = "";
+
+        menuItems.forEach(item => {
+          const itemElement = document.createElement("div");
+          itemElement.className = "item";
+
+          itemElement.innerHTML = `
+            <div class="item-info">
+              <div class="item-name">${escapeHtml(item.name)}</div>
+              <div class="price">$${item.price.toFixed(2)}</div>
+            </div>
+
+            <input
+              type="number"
+              id="${item.id}"
+              min="0"
+              step="1"
+              value="0"
+            >
+          `;
+
+          menuContainer.appendChild(itemElement);
+        });
+
+        status.style.display = "none";
+        calculateButton.disabled = false;
+
+      } catch (error) {
+        status.textContent = "Failed to load the menu.";
+        status.className = "error";
+        calculateButton.disabled = true;
+
+        console.error(error);
+      }
+    }
 
     function calculateBill() {
       let total = 0;
       let billHTML = "<h3>Bill Summary</h3>";
 
-      menu.forEach(item => {
+      menuItems.forEach(item => {
         const input = document.getElementById(item.id);
-        const quantity = Math.max(0, parseInt(input.value) || 0);
 
-        // Keep the displayed quantity valid.
+        let quantity = parseInt(input.value, 10);
+
+        if (isNaN(quantity) || quantity < 0) {
+          quantity = 0;
+        }
+
         input.value = quantity;
 
         if (quantity > 0) {
@@ -183,7 +234,7 @@
 
           billHTML += `
             <div class="bill-row">
-              <span>${item.name} × ${quantity}</span>
+              <span>${escapeHtml(item.name)} × ${quantity}</span>
               <span>$${subtotal.toFixed(2)}</span>
             </div>
           `;
@@ -205,6 +256,14 @@
       result.innerHTML = billHTML;
       result.style.display = "block";
     }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    loadMenu();
   </script>
 
 </body>
